@@ -1,9 +1,30 @@
 import { Router } from "express";
 
 import { getLogs, onLog, type LogEntry } from "../lib/logger.js";
-import { checkModel, checkNemo, checkServer } from "./sanityCheck.js";
+import { checkModel, checkNemo, checkServer } from "../lib/checks/index.js";
+import type { CheckResult } from "../lib/checks/sanityCheck.ts";
 
 const router = Router();
+
+/** Latest sanity-check result, cached after boot and refreshed on demand. */
+let cachedChecks: {
+  nemo: CheckResult;
+  model: CheckResult;
+  server: CheckResult;
+} | null = null;
+
+export function setCachedChecks(value: typeof cachedChecks): void {
+  cachedChecks = value;
+}
+
+async function runAllChecks() {
+  const [nemo, model, server] = await Promise.all([
+    checkNemo(),
+    checkModel(),
+    checkServer(),
+  ]);
+  return { nemo, model, server };
+}
 
 router.get("/health", (_req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
@@ -13,16 +34,14 @@ router.get("/hello", (_req, res) => {
   res.json({ message: "Hello from Express!" });
 });
 
-router.get("/sanity_check", async (_req, res) => {
-  const [nemo, model, server] = await Promise.all([
-    checkNemo(),
-    checkModel(),
-    checkServer(),
-  ]);
-  res.json({ nemo, model, server });
+router.get("/sanity_check", async (req, res) => {
+  const refresh = req.query.refresh === "1" || req.query.refresh === "true";
+  if (!cachedChecks || refresh) {
+    cachedChecks = await runAllChecks();
+  }
+  res.json(cachedChecks);
 });
 
-// Live backend logs over Server-Sent Events.
 router.get("/logs", (req, res) => {
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache, no-transform");
@@ -35,7 +54,6 @@ router.get("/logs", (req, res) => {
     res.write(`data: ${JSON.stringify(entry)}\n\n`);
   };
 
-  // Replay history so a fresh page shows startup logs.
   for (const entry of getLogs()) send(entry);
 
   const unsubscribe = onLog(send);

@@ -2,8 +2,8 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { createProgress, trackProgress } from "../lib/progress.js";
-import { checkNemo } from "./sanityCheck.js";
+import { createProgress, trackProgress } from "./progress.js";
+import { checkNemo } from "./checks/sanityCheck.ts";
 import { runCommand } from "./runCommand.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -45,8 +45,6 @@ async function downloadInstaller(): Promise<boolean> {
 
 function runInstaller() {
   if (isWindows) {
-    // Windows PowerShell 5.1 inherits PSModulePath from a PowerShell 7
-    // parent, which breaks built-in module autoloading (e.g. Get-FileHash).
     const env = { ...process.env };
     delete env.PSModulePath;
 
@@ -54,9 +52,12 @@ function runInstaller() {
       WINDOWS_POWERSHELL,
       [
         "-NoProfile",
-        "-ExecutionPolicy", "Bypass",
-        "-File", SCRIPT,
-        "-Prefix", PREFIX,
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        SCRIPT,
+        "-Prefix",
+        PREFIX,
         "-NoModifyPath",
       ],
       30 * 60 * 1000,
@@ -64,7 +65,6 @@ function runInstaller() {
     );
   }
 
-  // Linux/macOS installer.
   return runCommand(
     "sh",
     [SCRIPT, "--prefix", PREFIX, "--no-modify-path"],
@@ -72,7 +72,11 @@ function runInstaller() {
   );
 }
 
-export async function getNemo() {
+/**
+ * Install NeMo Speech and return the resulting PATH prefix, or `null` on
+ * failure. Does NOT mutate `process.env` — the caller decides how to apply it.
+ */
+export async function getNemo(): Promise<string | null> {
   const progress = createProgress("NeMo setup");
 
   progress.set(0.02, "downloading installer");
@@ -86,7 +90,7 @@ export async function getNemo() {
 
   if (!downloaded) {
     progress.stop("✗ Failed to download installer");
-    return;
+    return null;
   }
 
   progress.set(0.12, "installing (this can take several minutes)");
@@ -101,12 +105,13 @@ export async function getNemo() {
   if (!install.ok) {
     progress.stop("✗ Installation failed");
     console.error(install.stderr || install.error);
-    return;
+    return null;
   }
 
   // Make the freshly installed CLI visible to this process.
   const current = process.env.PATH ?? "";
-  process.env.PATH = current ? `${BIN}${path.delimiter}${current}` : BIN;
+  const newPath = current ? `${BIN}${path.delimiter}${current}` : BIN;
+  process.env.PATH = newPath;
 
   progress.set(0.97, "verifying");
   const result = await checkNemo();
@@ -114,4 +119,6 @@ export async function getNemo() {
     result.pass ? "✓ NeMo installed" : "⚠ NeMo installed but not detected",
   );
   if (!result.pass) console.warn(result.reason);
+
+  return BIN;
 }
