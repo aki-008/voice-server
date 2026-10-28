@@ -7,11 +7,13 @@ export async function runCommand(
   cmd: string,
   args: string[] = [],
   timeout = 30_000,
+  env?: NodeJS.ProcessEnv,
 ) {
   try {
     const { stdout, stderr } = await execFileAsync(cmd, args, {
       timeout,
-      maxBuffer: 10 * 1024 * 1024, // 10MB, enough for pip output
+      maxBuffer: 64 * 1024 * 1024, // 64MB, for verbose installer/build output
+      ...(env ? { env } : {}),
     });
     return { ok: true, stdout, stderr };
   } catch (err) {
