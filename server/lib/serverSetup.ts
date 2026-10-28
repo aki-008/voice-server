@@ -119,6 +119,7 @@ export async function getNemo(): Promise<string | null> {
     result.pass ? "✓ NeMo installed" : "⚠ NeMo installed but not detected",
   );
   if (!result.pass) console.warn(result.reason);
+  console.log(result, BIN);
 
   return BIN;
 }
