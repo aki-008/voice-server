@@ -27,6 +27,7 @@ const MODEL_DIR = path.resolve(
   "models",
   "nemotron-speech-streaming-en-0.6b",
 );
+
 export async function checkModel(): Promise<CheckResult> {
   try {
     const stat = await fs.promises.stat(MODEL_DIR);

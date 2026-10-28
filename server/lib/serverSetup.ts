@@ -1,9 +1,9 @@
-import os, { version } from "node:os";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { createProgress, trackProgress } from "./progress.js";
-import { checkNemo } from "./checks/sanityCheck.ts";
+import { checkNemo, checkModel } from "./checks/sanityCheck.js";
 import { runCommand } from "./runCommand.js";
 import fs from "node:fs";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -109,9 +109,10 @@ export async function getNemo(): Promise<string | null> {
   }
 
   // Make the freshly installed CLI visible to this process.
+  // after install succeeds:
   const current = process.env.PATH ?? "";
   const newPath = current ? `${BIN}${path.delimiter}${current}` : BIN;
-  process.env.PATH = newPath;
+  process.env.PATH = newPath; // ← must actually assign
 
   progress.set(0.97, "verifying");
   const result = await checkNemo();
@@ -119,7 +120,9 @@ export async function getNemo(): Promise<string | null> {
     result.pass ? "✓ NeMo installed" : "⚠ NeMo installed but not detected",
   );
   if (!result.pass) console.warn(result.reason);
-  console.log(result, BIN);
+
+  // Remove any debug line like:
+  //   console.log(result, BIN);   ← the stray "{ pass: true, ... } X:\...\bin"
 
   return BIN;
 }
@@ -129,7 +132,7 @@ const HF_INSTALL_PS1 = "https://hf.co/cli/install.ps1";
 
 const HF_SCRIPT = path.join(
   os.tmpdir(),
-  isWindows ? "hf-instal.ps1" : "hf-install.sh",
+  isWindows ? "hf-install.ps1" : "hf-install.sh",
 );
 
 export async function checkHfCli() {
@@ -315,5 +318,63 @@ export async function getHFCli(): Promise<boolean> {
     }
   }
 
+  return verified.pass;
+}
+
+const MODEL_REPO = "nvidia/nemotron-3.5-asr-streaming-0.6b";
+const MODEL_FILE = "nemotron-3.5-asr-streaming-0.6b.q8_0.gguf";
+
+/** Root models dir, resolved relative to repo root. */
+const MODELS_DIR = path.resolve(__dirname, "..", "..", "models");
+
+function runHfDownload() {
+  return runCommand(
+    "hf",
+    ["download", MODEL_REPO, MODEL_FILE, "--local-dir", MODELS_DIR],
+    30 * 60 * 1000, // 30 min — quantized 0.6B is ~700 MB
+  );
+}
+
+export async function getModel(): Promise<boolean> {
+  const progress = createProgress("Model setup");
+
+  // 1) Already present?
+  const already = await checkModel();
+  if (already.pass) {
+    progress.stop(`✓ Model already available (${already.fileCount} files)`);
+    return true;
+  }
+
+  // 2) hf CLI must be usable — otherwise we can't download.
+  const hf = await checkHfCli();
+  if (!hf.pass) {
+    progress.stop("✗ hf CLI not available — cannot download model");
+    console.warn(hf.reason);
+    return false;
+  }
+
+  // 3) Download with an eased progress bar.
+  progress.set(0.05, "downloading model (this can take several minutes)");
+  const download = await trackProgress(
+    progress,
+    0.05,
+    0.95,
+    runHfDownload(),
+    "downloading model (this can take several minutes)",
+  );
+
+  if (!download.ok) {
+    progress.stop("✗ Model download failed");
+    console.error(download.stderr || download.error);
+    return false;
+  }
+
+  // 4) Re-verify with the existing check.
+  progress.set(0.97, "verifying");
+  const verified = await checkModel();
+  progress.stop(
+    verified.pass ? "✓ Model downloaded" : "⚠ Model download incomplete",
+  );
+  if (!verified.pass) console.warn(verified.reason);
   return verified.pass;
 }

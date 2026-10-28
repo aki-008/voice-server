@@ -4,15 +4,15 @@
   "description": "SPA (Vite + vanilla TS) with an Express (TypeScript) backend",
   "type": "module",
   "scripts": {
-    "dev": "concurrently -n server,client -c blue,green \"npm run dev:server\" \"npm run dev:client\"",
+    "check": "eslint . && tsc -p tsconfig.server.json --noEmit && tsc -p tsconfig.json --noEmit",
+    "dev": "concurrently ...",
     "dev:server": "tsx watch server/index.ts",
     "dev:client": "vite",
     "build": "npm run build:client && npm run build:server",
     "build:client": "vite build",
     "build:server": "tsc -p tsconfig.server.json",
     "start": "node dist-server/index.js",
-    "preview": "vite preview",
-    "check": "eslint . && tsc"
+    "preview": "vite preview"
   },
   "dependencies": {
     "cors": "^2.8.5",
@@ -28,6 +28,7 @@
     "globals": "^17.13.0",
     "tsx": "^4.19.2",
     "typescript": "^5.9.3",
+    "typescript-eslint": "^8.72.1",
     "vite": "^6.0.0"
   }
 }

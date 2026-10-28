@@ -2,7 +2,7 @@ import { Router } from "express";
 
 import { getLogs, onLog, type LogEntry } from "../lib/logger.js";
 import { checkModel, checkNemo, checkServer } from "../lib/checks/index.js";
-import type { CheckResult } from "../lib/checks/sanityCheck.ts";
+import type { CheckResult } from "../lib/checks/sanityCheck.js";
 
 const router = Router();
 
