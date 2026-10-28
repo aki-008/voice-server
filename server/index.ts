@@ -1,6 +1,6 @@
 import { createApp } from "./app.js";
 import { checkModel, checkNemo, checkServer } from "./lib/checks/index.js";
-import { getNemo } from "./lib/serverSetup.js";
+import { getNemo, getHFCli, checkHfCli } from "./lib/serverSetup.js";
 import { setCachedChecks } from "./routes/api.js";
 
 const PORT = Number(process.env.PORT) || 3000;
@@ -15,6 +15,12 @@ async function runChecks() {
   } else {
     console.log("✓ NeMo", nemo.version);
   }
+
+  const hf = await checkHfCli();
+  if (!nemo.pass) {
+    console.warn("⚠ NeMo:", nemo.reason);
+    await getHFCli();
+  } else console.log("✓ hf", hf.version);
 
   const model = await checkModel();
   if (!model.pass) console.warn("⚠ Model:", model.reason);
