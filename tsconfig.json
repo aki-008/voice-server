@@ -5,6 +5,8 @@
     "module": "ESNext",
     "moduleResolution": "bundler",
     "strict": true,
+    "allowJs": true,
+    "checkJs": true,
     "noEmit": true,
     "isolatedModules": true,
     "skipLibCheck": true,
