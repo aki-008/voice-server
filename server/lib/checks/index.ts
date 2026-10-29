@@ -1,3 +1,2 @@
-export { checkNemo, type CheckResult } from "./sanityCheck.js";
-export { checkModel } from "./sanityCheck.js";
-export { checkServer } from "./sanityCheck.js";
+export { checkNemo, checkServer, type CheckResult } from "./sanityCheck.js";
+export { checkModel } from "./model.js"; // ← the file-based check

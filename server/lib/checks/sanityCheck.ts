@@ -55,7 +55,6 @@ export function checkServer(
 ): Promise<CheckResult> {
   return new Promise((resolve) => {
     const req = http.get(url, { timeout: 3000 }, (res) => {
-      // Drain the response so the socket closes cleanly.
       res.resume();
       if (res.statusCode === 200) resolve({ pass: true });
       else resolve({ pass: false, reason: `HTTP ${res.statusCode}` });

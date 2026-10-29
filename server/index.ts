@@ -1,24 +1,36 @@
+// server/index.ts — full rewrite
+
 import { createApp } from "./app.js";
 import { checkModel, checkNemo, checkServer } from "./lib/checks/index.js";
-import { getNemo, getHFCli, checkHfCli, getModel } from "./lib/serverSetup.js";
+import type { CheckResult } from "./lib/checks/sanityCheck.js";
+import {
+  getNemo,
+  getHFCli,
+  checkHfCli,
+  getModel,
+  RunServer,
+} from "./lib/serverSetup.js";
 import { setCachedChecks } from "./routes/api.js";
 
 const PORT = Number(process.env.PORT) || 3000;
 
-async function runChecks() {
+async function runChecks(): Promise<{
+  nemo: CheckResult;
+  model: CheckResult;
+  server: CheckResult;
+}> {
   console.log("Running sanity checks...");
 
   // --- NeMo ---
-  const nemo = await checkNemo();
+  let nemo = await checkNemo();
   if (nemo.pass) {
     console.log("✓ NeMo", nemo.version);
   } else {
     console.warn("⚠ NeMo:", nemo.reason);
-    const installed = await getNemo(); // ← returns BIN or null
-    if (!installed) {
-      console.warn("⚠ NeMo setup failed — continuing without it");
-    }
-    // Do NOT call checkNemo() again. getNemo() already verified.
+    await getNemo();
+    nemo = await checkNemo(); // re-check *once* after install, so cache is accurate
+    if (nemo.pass) console.log("✓ NeMo", nemo.version);
+    else console.warn("⚠ NeMo setup failed — continuing without it");
   }
 
   // --- hf CLI ---
@@ -31,29 +43,31 @@ async function runChecks() {
   }
 
   // --- Model ---
-  const model = await checkModel();
+  let model = await checkModel();
   if (model.pass) {
     console.log("✓ Model available");
   } else {
     console.warn("⚠ Model:", model.reason);
     await getModel();
+    model = await checkModel(); // re-check once, now that download ran
+    if (model.pass) console.log("✓ Model available");
+    else console.warn("⚠ Model download incomplete");
   }
 
-  // --- STT server (separate process; expected to fail here) ---
-  const stt = await checkServer();
-  if (!stt.pass) console.warn("⚠ STT server:", stt.reason);
-  else console.log("✓ STT server reachable");
-
-  // Publish results so `/api/sanity_check` doesn't re-run on first hit.
-  const [nemo2, model2, stt2] = await Promise.all([
-    checkNemo(),
-    checkModel(),
-    checkServer(),
-  ]);
-  setCachedChecks({ nemo: nemo2, model: model2, server: stt2 });
+  // --- STT server ---
+  const server = await checkServer();
+  if (server.pass) {
+    console.log("✓ server availiable");
+  } else {
+    console.warn("⚠ server not responding:", server.reason);
+    await RunServer();
+  }
+  return { nemo, model, server };
 }
 
 createApp().listen(PORT, () => {
   console.log(`Express ready on :${PORT}`);
-  runChecks().catch((err) => console.error("Startup checks failed:", err));
+  runChecks()
+    .then((results) => setCachedChecks(results))
+    .catch((err) => console.error("Startup checks failed:", err));
 });

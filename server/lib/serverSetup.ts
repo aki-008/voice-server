@@ -3,9 +3,12 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { createProgress, trackProgress } from "./progress.js";
-import { checkNemo, checkModel } from "./checks/sanityCheck.js";
+import { checkNemo, checkServer } from "./checks/sanityCheck.js";
+import { checkModel } from "./checks/model.js";
 import { runCommand } from "./runCommand.js";
 import fs from "node:fs";
+import { PassThrough } from "node:stream";
+import { BlobOptions } from "node:buffer";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const isWindows = process.platform === "win32";
@@ -136,12 +139,21 @@ const HF_SCRIPT = path.join(
 );
 
 export async function checkHfCli() {
-  const result = await runCommand("hf", ["version"]);
+  // Fast path: probe PATH *or* known dirs once, and only then run `hf`.
   const located = await locateHf();
+  if (!located) {
+    return {
+      pass: false as const,
+      reason: "hf cli not found",
+      detail: "not on PATH or in known install dirs",
+    };
+  }
+
+  const result = await runCommand(located, ["version"]);
   if (!result.ok) {
     return {
       pass: false as const,
-      reason: "hf cli not on PATH",
+      reason: "hf cli not runnable",
       detail: result.stderr,
     };
   }
@@ -377,4 +389,39 @@ export async function getModel(): Promise<boolean> {
   );
   if (!verified.pass) console.warn(verified.reason);
   return verified.pass;
+}
+
+export async function serverCommand() {
+  const result = await runCommand("nemo-speech", [
+    "serve",
+    "--asr-model",
+    "models/nemotron-3.5-asr-streaming-0.6b.q8_0.gguf",
+    "--open",
+  ]);
+}
+
+export async function RunServer(): Promise<boolean> {
+  const progress = createProgress("server setup");
+
+  const already = await checkServer();
+  if (already.pass) {
+    progress.stop(`✓ server already live`);
+    return true;
+  }
+
+  progress.set(0.05, "Starting server (this can take several minutes)");
+  const server = await trackProgress(
+    progress,
+    0.05,
+    0.95,
+    serverCommand(),
+    "loading model ( This can take a minute)",
+  );
+
+  if (!server.ok) {
+    progress.stop("✗ Model download failed");
+    console.error(server.stderr || server.error);
+    return false;
+  }
+  return true;
 }

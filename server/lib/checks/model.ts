@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import type { CheckResult } from "./nemo.js";
+import type { CheckResult } from "./sanityCheck.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
