@@ -226,6 +226,52 @@ body {
   font-size: 0.76rem;
 }
 
+.language-presets {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.language-presets-label {
+  margin-right: 4px;
+  font-size: 0.66rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.language-presets button {
+  padding: 0.26rem 0.62rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: #141c22;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.74rem;
+  line-height: 1.5;
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+}
+
+.language-presets button:hover {
+  border-color: #46545f;
+  color: var(--text);
+}
+
+.language-presets button[aria-pressed="true"] {
+  border-color: var(--accent-strong);
+  background: rgba(118, 185, 0, 0.16);
+  color: var(--accent);
+}
+
+.language-presets button:focus-visible {
+  outline: 2px solid var(--accent-strong);
+  outline-offset: 2px;
+}
+
 .form-error {
   grid-column: 1 / -1;
   margin: 0;

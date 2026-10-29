@@ -81,8 +81,8 @@ app.innerHTML = `
           />
           <small>Shown next to every transcript segment.</small>
         </label>
-        <label class="field field-language">
-          <span class="field-label">Language</span>
+        <div class="field field-language">
+          <label class="field-label" for="language">Language</label>
           <input
             id="language"
             name="language"
@@ -93,53 +93,64 @@ app.innerHTML = `
             placeholder="en-US"
           />
           <small>BCP-47 code, or auto to detect.</small>
-        </label>
+        </div>
+        <div class="language-presets" role="group" aria-label="Language presets">
+          <span class="language-presets-label">Presets</span>
+          <button type="button" data-language="auto">Auto</button>
+          <button type="button" data-language="en-US">English</button>
+          <button type="button" data-language="hi-IN" lang="hi">हिन्दी</button>
+          <button type="button" data-language="es-ES">Español</button>
+          <button type="button" data-language="fr-FR">Français</button>
+          <button type="button" data-language="de-DE">Deutsch</button>
+          <button type="button" data-language="zh-CN">中文</button>
+          <button type="button" data-language="ja-JP">日本語</button>
+        </div>
         <datalist id="language-options">
-          <option value="auto"></option>
-          <option value="en-US"></option>
-          <option value="en-GB"></option>
-          <option value="es-ES"></option>
-          <option value="es-US"></option>
-          <option value="fr-FR"></option>
-          <option value="fr-CA"></option>
-          <option value="de-DE"></option>
-          <option value="it-IT"></option>
-          <option value="pt-BR"></option>
-          <option value="pt-PT"></option>
-          <option value="nl-NL"></option>
-          <option value="pl-PL"></option>
-          <option value="ru-RU"></option>
-          <option value="tr-TR"></option>
-          <option value="uk-UA"></option>
-          <option value="sv-SE"></option>
-          <option value="da-DK"></option>
-          <option value="fi-FI"></option>
-          <option value="nb-NO"></option>
-          <option value="cs-CZ"></option>
-          <option value="sk-SK"></option>
-          <option value="ro-RO"></option>
-          <option value="hu-HU"></option>
-          <option value="el-GR"></option>
-          <option value="bg-BG"></option>
-          <option value="hr-HR"></option>
-          <option value="hi-IN"></option>
-          <option value="ta-IN"></option>
-          <option value="te-IN"></option>
-          <option value="bn-IN"></option>
-          <option value="ur-PK"></option>
-          <option value="ar-AR"></option>
-          <option value="he-IL"></option>
-          <option value="fa-IR"></option>
-          <option value="ja-JP"></option>
-          <option value="ko-KR"></option>
-          <option value="zh-CN"></option>
-          <option value="zh-TW"></option>
-          <option value="vi-VN"></option>
-          <option value="th-TH"></option>
-          <option value="id-ID"></option>
-          <option value="ms-MY"></option>
-          <option value="sw-KE"></option>
-          <option value="af-ZA"></option>
+          <option value="auto" label="Auto-detect"></option>
+          <option value="en-US" label="English (US)"></option>
+          <option value="en-GB" label="English (UK)"></option>
+          <option value="es-ES" label="Spanish (Spain)"></option>
+          <option value="es-US" label="Spanish (US)"></option>
+          <option value="fr-FR" label="French (France)"></option>
+          <option value="fr-CA" label="French (Canada)"></option>
+          <option value="de-DE" label="German"></option>
+          <option value="it-IT" label="Italian"></option>
+          <option value="pt-BR" label="Portuguese (Brazil)"></option>
+          <option value="pt-PT" label="Portuguese (Portugal)"></option>
+          <option value="nl-NL" label="Dutch"></option>
+          <option value="pl-PL" label="Polish"></option>
+          <option value="ru-RU" label="Russian"></option>
+          <option value="tr-TR" label="Turkish"></option>
+          <option value="uk-UA" label="Ukrainian"></option>
+          <option value="sv-SE" label="Swedish"></option>
+          <option value="da-DK" label="Danish"></option>
+          <option value="fi-FI" label="Finnish"></option>
+          <option value="nb-NO" label="Norwegian"></option>
+          <option value="cs-CZ" label="Czech"></option>
+          <option value="sk-SK" label="Slovak"></option>
+          <option value="ro-RO" label="Romanian"></option>
+          <option value="hu-HU" label="Hungarian"></option>
+          <option value="el-GR" label="Greek"></option>
+          <option value="bg-BG" label="Bulgarian"></option>
+          <option value="hr-HR" label="Croatian"></option>
+          <option value="hi-IN" label="Hindi"></option>
+          <option value="ta-IN" label="Tamil"></option>
+          <option value="te-IN" label="Telugu"></option>
+          <option value="bn-IN" label="Bengali"></option>
+          <option value="ur-PK" label="Urdu"></option>
+          <option value="ar-AR" label="Arabic"></option>
+          <option value="he-IL" label="Hebrew"></option>
+          <option value="fa-IR" label="Persian"></option>
+          <option value="ja-JP" label="Japanese"></option>
+          <option value="ko-KR" label="Korean"></option>
+          <option value="zh-CN" label="Chinese (Simplified)"></option>
+          <option value="zh-TW" label="Chinese (Traditional)"></option>
+          <option value="vi-VN" label="Vietnamese"></option>
+          <option value="th-TH" label="Thai"></option>
+          <option value="id-ID" label="Indonesian"></option>
+          <option value="ms-MY" label="Malay"></option>
+          <option value="sw-KE" label="Swahili"></option>
+          <option value="af-ZA" label="Afrikaans"></option>
         </datalist>
         <p id="setup-error" class="form-error" role="alert" hidden></p>
         <button id="connect" class="button primary" type="submit">Continue</button>
@@ -280,6 +291,10 @@ urlInput.value = readStorage(URL_KEY) || DEFAULT_URL;
 nameInput.value = readStorage(NAME_KEY);
 languageInput.value = savedLanguage || DEFAULT_LANGUAGE;
 
+const languagePresets = Array.from(
+  document.querySelectorAll<HTMLButtonElement>(".language-presets button"),
+);
+
 let languageEdited = false;
 
 for (const input of [urlInput, nameInput, languageInput]) {
@@ -289,8 +304,20 @@ for (const input of [urlInput, nameInput, languageInput]) {
 }
 languageInput.addEventListener("input", () => {
   languageEdited = true;
+  syncLanguagePresets();
 });
 
+for (const preset of languagePresets) {
+  preset.addEventListener("click", () => {
+    languageInput.value = preset.dataset.language ?? "";
+    languageEdited = true;
+    setupError.hidden = true;
+    syncLanguagePresets();
+    languageInput.focus({ preventScroll: true });
+  });
+}
+
+syncLanguagePresets();
 void loadServerLanguage();
 
 form.addEventListener("submit", (event) => {
@@ -347,6 +374,7 @@ editButton.addEventListener("click", () => {
     urlInput.value = identity.serverUrl;
     nameInput.value = identity.username;
     languageInput.value = identity.language;
+    syncLanguagePresets();
   }
   setupEl.hidden = false;
   sessionEl.hidden = true;
@@ -368,9 +396,19 @@ async function loadServerLanguage(): Promise<void> {
     if (languageEdited) return;
     if (typeof config.language === "string" && config.language.trim()) {
       languageInput.value = config.language.trim();
+      syncLanguagePresets();
     }
   } catch {
     // The API is optional here; the built-in default is fine.
+  }
+}
+
+/** Highlight the preset whose language matches the input. */
+function syncLanguagePresets(): void {
+  const current = languageInput.value.trim().toLowerCase();
+  for (const preset of languagePresets) {
+    const language = (preset.dataset.language ?? "").toLowerCase();
+    preset.setAttribute("aria-pressed", String(language === current));
   }
 }
 
