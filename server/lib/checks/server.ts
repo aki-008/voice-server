@@ -1,12 +1,12 @@
 import http from "node:http";
 
+import { STT_URL } from "../config.js";
 import type { CheckResult } from "./types.js";
 
-const DEFAULT_STT_URL = process.env.STT_URL ?? "http://127.0.0.1:8080/ready";
 const TIMEOUT_MS = 3_000;
 const POLL_INTERVAL_MS = 1_000;
 
-export function checkServer(url: string = DEFAULT_STT_URL): Promise<CheckResult> {
+export function checkServer(url: string = STT_URL): Promise<CheckResult> {
   return new Promise((resolve) => {
     const req = http.get(url, { timeout: TIMEOUT_MS }, (res) => {
       res.resume();

@@ -73,6 +73,40 @@ Ctrl+C or closing the terminal stops it along with the app. Reloads triggered
 by `tsx watch` (`SIGTERM`) leave it running, so editing files does not reload
 the model.
 
+## Exposing the app with ngrok
+
+Tunnelling is optional and off by default. Grab an authtoken from the
+[ngrok dashboard](https://dashboard.ngrok.com/get-started/your-authtoken), set
+it in the environment, and the tunnel opens once the startup checks pass:
+
+```powershell
+$env:NGROK_AUTHTOKEN = "your-token"
+npm run dev:server
+```
+
+```bash
+export NGROK_AUTHTOKEN=your-token
+./start_server.sh
+```
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `NGROK_AUTHTOKEN` | — | Enables tunnelling |
+| `NGROK_ADDR` | STT port (`8080`) | Local port(s) to expose, comma-separated |
+| `NGROK_DOMAIN` | — | Reserved custom domain (single port only) |
+| `NGROK_BASIC_AUTH` | — | `user:password` required by the public URL |
+
+The public URL is logged at startup and served by `GET /api/tunnel`:
+
+```json
+{ "tunnels": [{ "addr": 8080, "url": "https://1a2b-3c4d.ngrok-free.app" }] }
+```
+
+Expose the Express app instead with `NGROK_ADDR=3000`, or both with
+`NGROK_ADDR=8080,3000`. Tunnels are closed when the app stops (Ctrl+C).
+Anybody with the URL can reach the tunneled port, so use `NGROK_BASIC_AUTH`
+(or a reserved domain) if it is exposed for more than a quick test.
+
 ## Adding API routes
 
 Create or edit files in `server/routes/` and mount them in `server/app.ts`:

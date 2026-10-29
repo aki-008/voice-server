@@ -3,6 +3,7 @@ import { Router } from "express";
 import { runSanityChecks } from "../lib/bootstrap.js";
 import type { SanityReport } from "../lib/checks/index.js";
 import { getLogs, onLog, type LogEntry } from "../lib/logger.js";
+import { getTunnels } from "../lib/ngrok_tunnel.js";
 
 const router = Router();
 
@@ -17,6 +18,11 @@ export function setCachedChecks(report: SanityReport): void {
 
 router.get("/health", (_req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
+});
+
+/** Public ngrok URLs, empty unless NGROK_AUTHTOKEN was set at startup. */
+router.get("/tunnel", (_req, res) => {
+  res.json({ tunnels: getTunnels() });
 });
 
 router.get("/sanity_check", async (req, res) => {
