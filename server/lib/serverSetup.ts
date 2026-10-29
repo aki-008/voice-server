@@ -33,6 +33,14 @@ const DOWNLOAD_TIMEOUT = 2 * 60 * 1000;
 const INSTALL_TIMEOUT = 30 * 60 * 1000;
 const SERVER_START_TIMEOUT = 3 * 60 * 1000;
 
+/**
+ * Browser origins allowed to call the STT server. The browser talks to it
+ * directly (it is a different origin from the app), and NeMo rejects
+ * cross-origin requests unless this is set. Override with STT_CORS_ORIGIN when
+ * one specific origin should be allowed instead of the public default.
+ */
+const STT_CORS_ORIGIN = process.env.STT_CORS_ORIGIN?.trim() || "*";
+
 /** The STT server we spawned, so shutdown can take it down. */
 let sttProcess: ChildProcess | null = null;
 
@@ -222,7 +230,14 @@ function launchSttServer(): Promise<boolean> {
   return new Promise((resolve) => {
     const child = spawn(
       "nemo-speech",
-      ["serve", "--asr-model", MODEL_FILE, "--open"],
+      [
+        "serve",
+        "--asr-model",
+        MODEL_FILE,
+        "--cors-origin",
+        STT_CORS_ORIGIN,
+        "--open",
+      ],
       { cwd: REPO_ROOT, stdio: "ignore" },
     );
     sttProcess = child;

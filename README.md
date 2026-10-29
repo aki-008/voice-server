@@ -33,8 +33,12 @@ The server listens on `PORT` (default `3000`) and serves both the API and the SP
 ```
 ├── index.html              # Vite HTML entry
 ├── src/                    # Frontend source (vanilla TS)
-│   ├── main.ts
-│   └── style.css
+│   ├── main.ts             # Setup form, mic controls, transcript UI
+│   ├── style.css
+│   └── lib/
+│       ├── url.ts          # Server URL → realtime WebSocket URL
+│       ├── stt.ts          # Transcription socket + event handling
+│       └── mic.ts          # AudioWorklet PCM capture + waveform analyser
 ├── server/                 # Express backend
 │   ├── index.ts            # Boot: patch console, listen, run startup checks
 │   ├── app.ts              # Express app + static serving (production)
@@ -43,6 +47,8 @@ The server listens on `PORT` (default `3000`) and serves both the API and the SP
 │   └── lib/
 │       ├── bootstrap.ts    # Startup checks + install orchestration
 │       ├── serverSetup.ts  # NeMo / hf CLI / model / STT server installers
+│       ├── config.ts       # Ports and STT endpoint configuration
+│       ├── ngrok_tunnel.ts # Optional public tunnels
 │       ├── paths.ts        # Repo paths and model constants
 │       ├── platform.ts     # OS helpers (PATH, PowerShell)
 │       ├── runCommand.ts   # Child-process helper
@@ -106,6 +112,28 @@ Expose the Express app instead with `NGROK_ADDR=3000`, or both with
 `NGROK_ADDR=8080,3000`. Tunnels are closed when the app stops (Ctrl+C).
 Anybody with the URL can reach the tunneled port, so use `NGROK_BASIC_AUTH`
 (or a reserved domain) if it is exposed for more than a quick test.
+
+## Using the frontend
+
+Open the app (Vite dev server at <http://localhost:5173>, or the Express app
+at <http://localhost:3000> in production) and:
+
+1. Enter the STT server URL — `http://localhost:8080` for the auto-started
+   server, or the ngrok URL that forwards port 8080.
+2. Enter the name shown next to each transcript segment.
+3. Press the microphone button and allow microphone access. Speech appears as
+   a live partial line, then becomes a timestamped segment.
+4. Press the button again to commit the last utterance and close the session.
+
+The URL and name are remembered in `localStorage`. The browser talks to the
+STT server directly (it does not proxy audio through Express), so the URL must
+be reachable from the browser. The spawned server is started with
+`--cors-origin *` so cross-origin pages can connect; set `STT_CORS_ORIGIN` to
+a single origin to restrict it.
+
+If the app itself is served over HTTPS (for example through ngrok on port
+3000), the browser blocks `ws://localhost:8080` as mixed content. Tunnel port
+8080 as well and enter its `https://…` URL — the app converts it to `wss://`.
 
 ## Adding API routes
 
