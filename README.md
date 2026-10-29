@@ -19,6 +19,10 @@ A minimal boilerplate for a Single Page Application with an Express backend.
 | `./start_server.sh` | Bootstrap (deps only when stale) and start the backend — bash, Git Bash, WSL |
 | `.\start_server.ps1` | Same bootstrap for Windows PowerShell |
 
+Both scripts accept a default language: `./start_server.sh --language es-ES` or
+`.\start_server.ps1 -Language es-ES`. Pass `auto` to let the model detect it.
+This sets `STT_LANGUAGE` (see [Using the frontend](#using-the-frontend)).
+
 ## Production
 
 ```bash
@@ -79,6 +83,15 @@ Ctrl+C or closing the terminal stops it along with the app. Reloads triggered
 by `tsx watch` (`SIGTERM`) leave it running, so editing files does not reload
 the model.
 
+## Troubleshooting
+
+`http proxy error: /api/config` with `ECONNREFUSED` in the Vite output means
+Vite is running without the Express backend: `/api` is proxied to
+`http://localhost:3000`. Start both with `npm run dev`, or keep
+`npm run dev:server` running in a second terminal. The client treats
+`/api/config` as optional and falls back to its built-in default language, so
+the page still works — only the `STT_LANGUAGE` prefill is missed.
+
 ## Exposing the app with ngrok
 
 Tunnelling is optional and off by default. Grab an authtoken from the
@@ -121,15 +134,32 @@ at <http://localhost:3000> in production) and:
 1. Enter the STT server URL — `http://localhost:8080` for the auto-started
    server, or the ngrok URL that forwards port 8080.
 2. Enter the name shown next to each transcript segment.
-3. Press the microphone button and allow microphone access. Speech appears as
+3. Pick a language: a BCP-47 code such as `en-US` or `es-ES`, or `auto` to let
+   the model detect it.
+4. Press the microphone button and allow microphone access. Speech appears as
    a live partial line, then becomes a timestamped segment.
-4. Press the button again to commit the last utterance and close the session.
+5. Press the button again to commit the last utterance and close the session.
 
-The URL and name are remembered in `localStorage`. The browser talks to the
-STT server directly (it does not proxy audio through Express), so the URL must
-be reachable from the browser. The spawned server is started with
-`--cors-origin *` so cross-origin pages can connect; set `STT_CORS_ORIGIN` to
-a single origin to restrict it.
+The URL, name, and language are remembered in `localStorage`. The language
+defaults to `STT_LANGUAGE` (default `en-US`); it is delivered to the STT server
+in `session.update` when the socket opens. `nemo-speech serve` has no language
+flag — language is a per-session setting — so this env var supplies the app's
+default and the setup form can override it per session.
+
+The capture panel reports three timings, all measured in the browser:
+
+| Metric | Measured from → to |
+| --- | --- |
+| Connect | Opening the WebSocket → `session.update` sent |
+| First partial | First PCM frame sent → first partial transcript |
+| Final | Last PCM frame sent → final transcript |
+
+Each transcript segment also shows its own finalization latency.
+
+The browser talks to the STT server directly (it does not proxy audio through
+Express), so the URL must be reachable from the browser. The spawned server is
+started with `--cors-origin *` so cross-origin pages can connect; set
+`STT_CORS_ORIGIN` to a single origin to restrict it.
 
 If the app itself is served over HTTPS (for example through ngrok on port
 3000), the browser blocks `ws://localhost:8080` as mixed content. Tunnel port

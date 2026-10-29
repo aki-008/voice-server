@@ -2,6 +2,7 @@ import { Router } from "express";
 
 import { runSanityChecks } from "../lib/bootstrap.js";
 import type { SanityReport } from "../lib/checks/index.js";
+import { STT_LANGUAGE } from "../lib/config.js";
 import { getLogs, onLog, type LogEntry } from "../lib/logger.js";
 import { getTunnels } from "../lib/ngrok_tunnel.js";
 
@@ -18,6 +19,11 @@ export function setCachedChecks(report: SanityReport): void {
 
 router.get("/health", (_req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
+});
+
+/** Client defaults (language can still be overridden in the setup form). */
+router.get("/config", (_req, res) => {
+  res.json({ language: STT_LANGUAGE });
 });
 
 /** Public ngrok URLs, empty unless NGROK_AUTHTOKEN was set at startup. */

@@ -7,8 +7,16 @@
     dependencies only when they are missing or stale, then runs
     `npm run dev:server`.
 
+    -Language sets the default transcription language (BCP-47 code or `auto`)
+    for the app and its client UI. `nemo-speech serve` has no language flag --
+    language is applied per session via `session.update` -- so this only sets
+    the app-level default (equivalent to the STT_LANGUAGE env var).
+
 .EXAMPLE
     .\start_server.ps1
+
+.EXAMPLE
+    .\start_server.ps1 -Language es-ES
 
 .NOTES
     If Windows blocks the script, run it with:
@@ -17,7 +25,11 @@
         Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
 #>
 [CmdletBinding()]
-param()
+param(
+    # Default transcription language, e.g. en-US, es-ES, or auto.
+    [ValidateNotNullOrEmpty()]
+    [string]$Language
+)
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -104,5 +116,9 @@ else {
 }
 
 Write-Host 'Starting server...'
+if ($PSBoundParameters.ContainsKey('Language')) {
+    $env:STT_LANGUAGE = $Language
+    Write-Host "Default transcription language: $Language"
+}
 & $npm run dev:server
 exit $LASTEXITCODE

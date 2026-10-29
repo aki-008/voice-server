@@ -17,3 +17,11 @@ export const STT_URL = process.env.STT_URL ?? DEFAULT_STT_URL;
 
 /** Local port the STT server listens on (used as the default tunnel target). */
 export const STT_PORT = portOf(STT_URL, 8080);
+
+/**
+ * Default language for realtime transcription. `auto` asks the model to
+ * detect it. Note that `nemo-speech serve` has no language flag: language is a
+ * per-session setting (`session.update`), so the client receives this default
+ * from /api/config and sends it when it opens the socket.
+ */
+export const STT_LANGUAGE = process.env.STT_LANGUAGE?.trim() || "en-US";

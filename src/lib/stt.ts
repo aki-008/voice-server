@@ -24,7 +24,7 @@ export interface SttSessionConfig {
 export interface SttHandlers {
   /** Called with the full partial transcript of the current utterance. */
   onPartial?: (text: string) => void;
-  /** Called once per finished utterance. */
+  /** Called once per finished utterance; can be empty after a silent commit. */
   onFinal?: (text: string) => void;
   /** The server accepted the final commit; the session can be closed. */
   onCommitted?: () => void;
@@ -106,10 +106,11 @@ export class SttClient {
     });
   }
 
-  /** Send a chunk of little-endian PCM16 audio. */
-  sendAudio(chunk: ArrayBuffer): void {
-    if (!this.isOpen || this.committed) return;
+  /** Send a chunk of little-endian PCM16 audio; true when it reached the socket. */
+  sendAudio(chunk: ArrayBuffer): boolean {
+    if (!this.isOpen || this.committed) return false;
     this.socket?.send(chunk);
+    return true;
   }
 
   /** Finish the current utterance: the server flushes and emits finals. */
@@ -146,7 +147,7 @@ export class SttClient {
         typeof message.transcript === "string" ? message.transcript.trim() : "";
       this.partial = "";
       this.handlers.onPartial?.("");
-      if (text) this.handlers.onFinal?.(text);
+      this.handlers.onFinal?.(text);
       return;
     }
 

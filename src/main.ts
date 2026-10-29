@@ -6,8 +6,9 @@ import { serverLabel, toWebSocketUrl } from "./lib/url.js";
 
 const URL_KEY = "voice.serverUrl";
 const NAME_KEY = "voice.username";
+const LANGUAGE_KEY = "voice.language";
 const DEFAULT_URL = "http://localhost:8080";
-const LANGUAGE = "en-US";
+const DEFAULT_LANGUAGE = "en-US";
 
 type Stage = "idle" | "connecting" | "live" | "stopping";
 type Tone = "off" | "ready" | "pending" | "live" | "error";
@@ -17,6 +18,7 @@ interface Identity {
   username: string;
   serverUrl: string;
   wsUrl: string;
+  language: string;
 }
 
 const root = document.querySelector<HTMLDivElement>("#app");
@@ -79,6 +81,66 @@ app.innerHTML = `
           />
           <small>Shown next to every transcript segment.</small>
         </label>
+        <label class="field field-language">
+          <span class="field-label">Language</span>
+          <input
+            id="language"
+            name="language"
+            type="text"
+            list="language-options"
+            autocomplete="off"
+            spellcheck="false"
+            placeholder="en-US"
+          />
+          <small>BCP-47 code, or auto to detect.</small>
+        </label>
+        <datalist id="language-options">
+          <option value="auto"></option>
+          <option value="en-US"></option>
+          <option value="en-GB"></option>
+          <option value="es-ES"></option>
+          <option value="es-US"></option>
+          <option value="fr-FR"></option>
+          <option value="fr-CA"></option>
+          <option value="de-DE"></option>
+          <option value="it-IT"></option>
+          <option value="pt-BR"></option>
+          <option value="pt-PT"></option>
+          <option value="nl-NL"></option>
+          <option value="pl-PL"></option>
+          <option value="ru-RU"></option>
+          <option value="tr-TR"></option>
+          <option value="uk-UA"></option>
+          <option value="sv-SE"></option>
+          <option value="da-DK"></option>
+          <option value="fi-FI"></option>
+          <option value="nb-NO"></option>
+          <option value="cs-CZ"></option>
+          <option value="sk-SK"></option>
+          <option value="ro-RO"></option>
+          <option value="hu-HU"></option>
+          <option value="el-GR"></option>
+          <option value="bg-BG"></option>
+          <option value="hr-HR"></option>
+          <option value="hi-IN"></option>
+          <option value="ta-IN"></option>
+          <option value="te-IN"></option>
+          <option value="bn-IN"></option>
+          <option value="ur-PK"></option>
+          <option value="ar-AR"></option>
+          <option value="he-IL"></option>
+          <option value="fa-IR"></option>
+          <option value="ja-JP"></option>
+          <option value="ko-KR"></option>
+          <option value="zh-CN"></option>
+          <option value="zh-TW"></option>
+          <option value="vi-VN"></option>
+          <option value="th-TH"></option>
+          <option value="id-ID"></option>
+          <option value="ms-MY"></option>
+          <option value="sw-KE"></option>
+          <option value="af-ZA"></option>
+        </datalist>
         <p id="setup-error" class="form-error" role="alert" hidden></p>
         <button id="connect" class="button primary" type="submit">Continue</button>
       </form>
@@ -89,6 +151,10 @@ app.innerHTML = `
         <div class="identity-item">
           <span class="identity-label">Speaking as</span>
           <strong id="identity-name"></strong>
+        </div>
+        <div class="identity-item">
+          <span class="identity-label">Language</span>
+          <strong id="identity-language" class="mono"></strong>
         </div>
         <div class="identity-item">
           <span class="identity-label">Server</span>
@@ -123,6 +189,20 @@ app.innerHTML = `
         <p id="status" class="capture-status" data-tone="idle" role="status">
           Ready — tap the microphone and start speaking.
         </p>
+        <dl class="latency" aria-label="Latency">
+          <div>
+            <dt>Connect</dt>
+            <dd id="latency-connect">—</dd>
+          </div>
+          <div>
+            <dt>First partial</dt>
+            <dd id="latency-partial">—</dd>
+          </div>
+          <div>
+            <dt>Final</dt>
+            <dd id="latency-final">—</dd>
+          </div>
+        </dl>
       </div>
 
       <div class="card transcript">
@@ -154,8 +234,10 @@ const sessionEl = el<HTMLElement>("#session");
 const form = el<HTMLFormElement>("#setup-form");
 const urlInput = el<HTMLInputElement>("#server-url");
 const nameInput = el<HTMLInputElement>("#username");
+const languageInput = el<HTMLInputElement>("#language");
 const setupError = el<HTMLParagraphElement>("#setup-error");
 const identityName = el<HTMLElement>("#identity-name");
+const identityLanguage = el<HTMLElement>("#identity-language");
 const identityServer = el<HTMLElement>("#identity-server");
 const editButton = el<HTMLButtonElement>("#edit");
 const micButton = el<HTMLButtonElement>("#mic");
@@ -168,6 +250,9 @@ const partialEl = el<HTMLParagraphElement>("#partial");
 const emptyEl = el<HTMLParagraphElement>("#empty");
 const countEl = el<HTMLSpanElement>("#count");
 const clearButton = el<HTMLButtonElement>("#clear");
+const latencyConnectEl = el<HTMLElement>("#latency-connect");
+const latencyPartialEl = el<HTMLElement>("#latency-partial");
+const latencyFinalEl = el<HTMLElement>("#latency-final");
 
 const ctx = canvas.getContext("2d");
 const clock = new Intl.DateTimeFormat(undefined, {
@@ -183,16 +268,30 @@ let stt: SttClient | null = null;
 let segments = 0;
 let commitTimer: number | undefined;
 
+/** Timing for the latency read-outs (all values from performance.now()). */
+let utteranceStartedAt: number | null = null;
+let lastAudioAt = 0;
+let awaitingFirstPartial = false;
+
 /* ------------------------------------------------------------------ setup */
 
+const savedLanguage = readStorage(LANGUAGE_KEY);
 urlInput.value = readStorage(URL_KEY) || DEFAULT_URL;
 nameInput.value = readStorage(NAME_KEY);
+languageInput.value = savedLanguage || DEFAULT_LANGUAGE;
 
-for (const input of [urlInput, nameInput]) {
+let languageEdited = false;
+
+for (const input of [urlInput, nameInput, languageInput]) {
   input.addEventListener("input", () => {
     setupError.hidden = true;
   });
 }
+languageInput.addEventListener("input", () => {
+  languageEdited = true;
+});
+
+void loadServerLanguage();
 
 form.addEventListener("submit", (event) => {
   event.preventDefault();
@@ -202,6 +301,8 @@ form.addEventListener("submit", (event) => {
     failSetup("Enter your name.", nameInput);
     return;
   }
+
+  const language = languageInput.value.trim() || "auto";
 
   let wsUrl: string;
   try {
@@ -215,11 +316,13 @@ form.addEventListener("submit", (event) => {
   const changed =
     !identity ||
     identity.username !== username ||
-    identity.serverUrl !== serverUrl;
+    identity.serverUrl !== serverUrl ||
+    identity.language !== language;
 
-  identity = { username, serverUrl, wsUrl };
+  identity = { username, serverUrl, wsUrl, language };
   writeStorage(URL_KEY, serverUrl);
   writeStorage(NAME_KEY, username);
+  writeStorage(LANGUAGE_KEY, language);
 
   if (changed) clearTranscript();
 
@@ -227,6 +330,7 @@ form.addEventListener("submit", (event) => {
   setupEl.hidden = true;
   sessionEl.hidden = false;
   identityName.textContent = username;
+  identityLanguage.textContent = language;
   identityServer.textContent = serverLabel(wsUrl);
   identityServer.title = serverLabel(wsUrl);
 
@@ -242,6 +346,7 @@ editButton.addEventListener("click", () => {
   if (identity) {
     urlInput.value = identity.serverUrl;
     nameInput.value = identity.username;
+    languageInput.value = identity.language;
   }
   setupEl.hidden = false;
   sessionEl.hidden = true;
@@ -250,6 +355,24 @@ editButton.addEventListener("click", () => {
   urlInput.focus();
   urlInput.select();
 });
+
+/** Prefill the language from the app's STT_LANGUAGE unless the user saved one. */
+async function loadServerLanguage(): Promise<void> {
+  if (savedLanguage) return;
+
+  try {
+    const response = await fetch("/api/config");
+    if (!response.ok) return;
+
+    const config = (await response.json()) as { language?: unknown };
+    if (languageEdited) return;
+    if (typeof config.language === "string" && config.language.trim()) {
+      languageInput.value = config.language.trim();
+    }
+  } catch {
+    // The API is optional here; the built-in default is fine.
+  }
+}
 
 function failSetup(message: string, input: HTMLInputElement): void {
   setupError.textContent = message;
@@ -270,25 +393,54 @@ micButton.addEventListener("click", () => {
 async function startCapture(): Promise<void> {
   if (stage !== "idle" || !identity) return;
 
+  const { wsUrl, language } = identity;
+
   setStage("connecting");
   setConnection("Connecting", "pending");
   setStatus("Requesting microphone access…", "pending");
+  resetLatency();
+  resetUtteranceTiming();
 
   let session: MicCapture | null = null;
   let client: SttClient | null = null;
 
   try {
     session = new MicCapture();
-    const { sampleRate } = await session.start((chunk) =>
-      client?.sendAudio(chunk),
-    );
+    const { sampleRate } = await session.start((chunk) => {
+      // Only timestamps matter once the frame actually reached the socket.
+      if (!client?.sendAudio(chunk)) return;
+
+      const now = performance.now();
+      if (utteranceStartedAt === null) {
+        utteranceStartedAt = now;
+        awaitingFirstPartial = true;
+      }
+      lastAudioAt = now;
+    });
     mic = session;
 
     setStatus("Connecting to the server…", "pending");
 
-    client = new SttClient(identity.wsUrl, {
-      onPartial: (text) => showPartial(text),
-      onFinal: (text) => addSegment(text),
+    client = new SttClient(wsUrl, {
+      onPartial: (text) => {
+        if (text && awaitingFirstPartial && utteranceStartedAt !== null) {
+          awaitingFirstPartial = false;
+          setLatency(latencyPartialEl, performance.now() - utteranceStartedAt);
+        }
+        showPartial(text);
+      },
+      onFinal: (text) => {
+        const finalLatency =
+          lastAudioAt > 0 ? performance.now() - lastAudioAt : null;
+
+        if (text) {
+          addSegment(text, finalLatency);
+          if (finalLatency !== null) {
+            setLatency(latencyFinalEl, finalLatency);
+          }
+        }
+        resetUtteranceTiming();
+      },
       onCommitted: () => finishStop(),
       onError: (message) => reportServerError(message),
       onClose: () => {
@@ -301,11 +453,13 @@ async function startCapture(): Promise<void> {
     });
     stt = client;
 
+    const connectStartedAt = performance.now();
     await client.connect({
       sampleRate,
-      language: LANGUAGE,
+      language,
       automaticPunctuation: true,
     });
+    setLatency(latencyConnectEl, performance.now() - connectStartedAt);
 
     if (stageNow() !== "connecting" || mic !== session || stt !== client) {
       client.close();
@@ -384,7 +538,7 @@ function reportServerError(message: string): void {
 
 clearButton.addEventListener("click", clearTranscript);
 
-function addSegment(text: string): void {
+function addSegment(text: string, latencyMs: number | null = null): void {
   const atBottom = isNearBottom();
 
   const item = document.createElement("li");
@@ -403,6 +557,14 @@ function addSegment(text: string): void {
   time.textContent = clock.format(now);
 
   meta.append(author, time);
+
+  if (latencyMs !== null) {
+    const latency = document.createElement("span");
+    latency.className = "segment-latency";
+    latency.textContent = `final ${formatLatency(latencyMs)}`;
+    latency.title = "Time from the last audio frame to the final transcript";
+    meta.append(latency);
+  }
 
   const body = document.createElement("p");
   body.className = "segment-text";
@@ -485,6 +647,32 @@ function setStatus(text: string, tone: StatusTone): void {
 function setConnection(text: string, tone: Tone): void {
   connectionEl.textContent = text;
   connectionEl.dataset.tone = tone;
+}
+
+/* --------------------------------------------------------------- latency */
+
+function resetLatency(): void {
+  setLatency(latencyConnectEl, null);
+  setLatency(latencyPartialEl, null);
+  setLatency(latencyFinalEl, null);
+}
+
+function setLatency(element: HTMLElement, milliseconds: number | null): void {
+  element.textContent =
+    milliseconds === null ? "—" : formatLatency(milliseconds);
+}
+
+function formatLatency(milliseconds: number): string {
+  if (!Number.isFinite(milliseconds) || milliseconds < 0) return "—";
+  return milliseconds < 1000
+    ? `${Math.round(milliseconds)} ms`
+    : `${(milliseconds / 1000).toFixed(2)} s`;
+}
+
+function resetUtteranceTiming(): void {
+  utteranceStartedAt = null;
+  lastAudioAt = 0;
+  awaitingFirstPartial = false;
 }
 
 /* -------------------------------------------------------------- waveform */
