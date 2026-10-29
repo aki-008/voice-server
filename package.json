@@ -5,10 +5,11 @@
   "type": "module",
   "scripts": {
     "check": "eslint . && tsc -p tsconfig.server.json --noEmit && tsc -p tsconfig.json --noEmit",
-    "dev": "concurrently ...",
+    "dev": "concurrently -k -n server,client -c cyan,green \"npm:dev:server\" \"npm:dev:client\"",
     "dev:server": "tsx watch server/index.ts",
     "dev:client": "vite",
-    "build": "npm run build:client && npm run build:server",
+    "clean": "node -e \"const fs = require('node:fs'); for (const dir of ['dist', 'dist-server']) fs.rmSync(dir, { recursive: true, force: true });\"",
+    "build": "npm run clean && npm run build:client && npm run build:server",
     "build:client": "vite build",
     "build:server": "tsc -p tsconfig.server.json",
     "start": "node dist-server/index.js",

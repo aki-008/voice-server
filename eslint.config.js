@@ -1,34 +1,48 @@
 import js from "@eslint/js";
 import globals from "globals";
+import tseslint from "typescript-eslint";
 
-export default [
-  // 1. Inherit standard JavaScript recommended rules
-  js.configs.recommended,
-
+export default tseslint.config(
   {
-    // 2. Target your backend files
-    files: ["**/*.js", "**/*.cjs", "**/*.mjs"],
-    
+    ignores: ["node_modules/", "dist/", "dist-server/", "coverage/", "vendor/", "models/"],
+  },
+
+  // Config files (Node, ESM).
+  {
+    files: ["**/*.{js,mjs,cjs}"],
+    extends: [js.configs.recommended],
     languageOptions: {
       ecmaVersion: "latest",
-      sourceType: "module", // Use "commonjs" if you are using require() instead of import
-      globals: {
-        ...globals.node, // Injects standard Node.js globals like process, __dirname, etc.
-      },
+      sourceType: "module",
+      globals: { ...globals.node },
     },
-
-    // 3. Define exceptions or custom rules for your Express app
     rules: {
-      "no-console": "off", // Allows console.log for server logging
-      "no-unused-vars": ["warn", { 
-        "argsIgnorePattern": "^_", 
-        "varsIgnorePattern": "^_" 
-      }], // Stops ESLint from yelling about unused 'next' middleware parameters
+      "no-console": "off",
     },
   },
-  
-  // 4. Global ignores (replaces the old .eslintignore file)
+
+  // Server (Node + TypeScript).
   {
-    ignores: ["node_modules/", "dist/", "coverage/"],
-  }
-];
+    files: ["server/**/*.ts"],
+    extends: [...tseslint.configs.recommended],
+    languageOptions: {
+      globals: { ...globals.node },
+    },
+    rules: {
+      "no-console": "off",
+      "@typescript-eslint/no-unused-vars": [
+        "warn",
+        { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
+      ],
+    },
+  },
+
+  // Client (browser + TypeScript).
+  {
+    files: ["src/**/*.ts"],
+    extends: [...tseslint.configs.recommended],
+    languageOptions: {
+      globals: { ...globals.browser },
+    },
+  },
+);

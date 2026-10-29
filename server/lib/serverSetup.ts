@@ -1,44 +1,44 @@
+import { spawn } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 
+import { checkHfCli, locateHf, waitForServer } from "./checks/index.js";
+import {
+  MODEL_FILE,
+  MODEL_FILE_NAME,
+  MODEL_REPO,
+  MODELS_DIR,
+  NEMO_BIN_DIR,
+  NEMO_DIR,
+  REPO_ROOT,
+} from "./paths.js";
+import { isWindows, prependToPath, WINDOWS_POWERSHELL } from "./platform.js";
 import { createProgress, trackProgress } from "./progress.js";
-import { checkNemo, checkServer } from "./checks/sanityCheck.js";
-import { checkModel } from "./checks/model.js";
 import { runCommand } from "./runCommand.js";
-import fs from "node:fs";
-import { PassThrough } from "node:stream";
-import { BlobOptions } from "node:buffer";
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-const isWindows = process.platform === "win32";
-
-const PREFIX = path.resolve(__dirname, "..", "..", "vendor", "NeMoSpeech");
-const BIN = path.join(PREFIX, "bin");
-const INSTALLER_BASE =
+const NEMO_INSTALLER_BASE =
   "https://raw.githubusercontent.com/NVIDIA/NeMo-Speech.cpp/main/scripts";
-const SCRIPT = path.join(
+const HF_INSTALLER_URL = "https://hf.co/cli/install.sh";
+
+const NEMO_SCRIPT = path.join(
   os.tmpdir(),
   isWindows ? "nemo-speech-install.ps1" : "nemo-speech-install.sh",
 );
-
-const WINDOWS_POWERSHELL = path.join(
-  process.env.SystemRoot ?? "C:\\Windows",
-  "System32",
-  "WindowsPowerShell",
-  "v1.0",
-  "powershell.exe",
+const HF_SCRIPT = path.join(
+  os.tmpdir(),
+  isWindows ? "hf-install.ps1" : "hf-install.sh",
 );
 
-async function downloadInstaller(): Promise<boolean> {
-  const url = `${INSTALLER_BASE}/${isWindows ? "install.ps1" : "install.sh"}`;
+const DOWNLOAD_TIMEOUT = 2 * 60 * 1000;
+const INSTALL_TIMEOUT = 30 * 60 * 1000;
+const SERVER_START_TIMEOUT = 3 * 60 * 1000;
 
+async function download(url: string, dest: string): Promise<boolean> {
   const result = await runCommand(
     isWindows ? "curl.exe" : "curl",
-    ["-fsSL", "-o", SCRIPT, url],
-    2 * 60 * 1000,
+    ["-fsSL", "-o", dest, url],
+    DOWNLOAD_TIMEOUT,
   );
-
   if (!result.ok) {
     console.error(result.stderr || result.error);
     return false;
@@ -46,7 +46,7 @@ async function downloadInstaller(): Promise<boolean> {
   return true;
 }
 
-function runInstaller() {
+function runNemoInstaller() {
   if (isWindows) {
     const env = { ...process.env };
     delete env.PSModulePath;
@@ -58,306 +58,127 @@ function runInstaller() {
         "-ExecutionPolicy",
         "Bypass",
         "-File",
-        SCRIPT,
+        NEMO_SCRIPT,
         "-Prefix",
-        PREFIX,
+        NEMO_DIR,
         "-NoModifyPath",
       ],
-      30 * 60 * 1000,
+      INSTALL_TIMEOUT,
       env,
     );
   }
 
   return runCommand(
     "sh",
-    [SCRIPT, "--prefix", PREFIX, "--no-modify-path"],
-    30 * 60 * 1000,
+    [NEMO_SCRIPT, "--prefix", NEMO_DIR, "--no-modify-path"],
+    INSTALL_TIMEOUT,
   );
 }
 
-/**
- * Install NeMo Speech and return the resulting PATH prefix, or `null` on
- * failure. Does NOT mutate `process.env` — the caller decides how to apply it.
- */
-export async function getNemo(): Promise<string | null> {
+/** Download and run the NeMo Speech installer. Callers verify with `checkNemo()`. */
+export async function installNemo(): Promise<boolean> {
   const progress = createProgress("NeMo setup");
+  const installer = `${NEMO_INSTALLER_BASE}/${isWindows ? "install.ps1" : "install.sh"}`;
 
-  progress.set(0.02, "downloading installer");
   const downloaded = await trackProgress(
     progress,
     0.02,
     0.12,
-    downloadInstaller(),
+    download(installer, NEMO_SCRIPT),
     "downloading installer",
   );
-
   if (!downloaded) {
     progress.stop("✗ Failed to download installer");
-    return null;
+    return false;
   }
 
-  progress.set(0.12, "installing (this can take several minutes)");
   const install = await trackProgress(
     progress,
     0.12,
     0.95,
-    runInstaller(),
+    runNemoInstaller(),
     "installing (this can take several minutes)",
   );
-
   if (!install.ok) {
     progress.stop("✗ Installation failed");
     console.error(install.stderr || install.error);
-    return null;
+    return false;
   }
 
   // Make the freshly installed CLI visible to this process.
-  // after install succeeds:
-  const current = process.env.PATH ?? "";
-  const newPath = current ? `${BIN}${path.delimiter}${current}` : BIN;
-  process.env.PATH = newPath; // ← must actually assign
-
-  progress.set(0.97, "verifying");
-  const result = await checkNemo();
-  progress.stop(
-    result.pass ? "✓ NeMo installed" : "⚠ NeMo installed but not detected",
-  );
-  if (!result.pass) console.warn(result.reason);
-
-  // Remove any debug line like:
-  //   console.log(result, BIN);   ← the stray "{ pass: true, ... } X:\...\bin"
-
-  return BIN;
-}
-
-const HF_INSTALL_SH = "https://hf.co/cli/install.sh";
-const HF_INSTALL_PS1 = "https://hf.co/cli/install.ps1";
-
-const HF_SCRIPT = path.join(
-  os.tmpdir(),
-  isWindows ? "hf-install.ps1" : "hf-install.sh",
-);
-
-export async function checkHfCli() {
-  // Fast path: probe PATH *or* known dirs once, and only then run `hf`.
-  const located = await locateHf();
-  if (!located) {
-    return {
-      pass: false as const,
-      reason: "hf cli not found",
-      detail: "not on PATH or in known install dirs",
-    };
-  }
-
-  const result = await runCommand(located, ["version"]);
-  if (!result.ok) {
-    return {
-      pass: false as const,
-      reason: "hf cli not runnable",
-      detail: result.stderr,
-    };
-  }
-  return {
-    pass: true as const,
-    version: (result.stdout ?? "").trim(),
-    location: located,
-  };
-}
-
-async function downloadHfInstaller(): Promise<boolean> {
-  // On Windows prefer pip (documented, reliable). Only try the .ps1 mirror
-  // if you've confirmed it exists — otherwise skip straight to pip.
-  if (isWindows) return true;
-
-  const result = await runCommand(
-    "curl",
-    ["-LsSf", "-o", HF_SCRIPT, HF_INSTALL_SH],
-    2 * 60 * 1000,
-  );
-  if (!result.ok) {
-    console.error(result.stderr || result.error);
-    return false;
-  }
+  prependToPath(NEMO_BIN_DIR);
+  progress.stop("NeMo installer finished");
   return true;
 }
 
-async function runHFInstaller() {
-  if (isWindows) {
-    const uv = await runCommand(
-      "uv",
-      ["tool", "install", "-U", "huggingface_hub[cli]"],
-      10 * 60 * 1000,
-    );
-    console.log("uv installation");
-    if (uv.ok) return uv;
-
-    const py = await runCommand(
-      "python",
-      ["-m", "pip", "install", "-U", "huggingface_hub[cli]"],
-      10 * 60 * 1000,
-    );
-    console.log("py installation");
-    if (py.ok) return py;
-    return py;
-  }
-  return runCommand("bash", [HF_SCRIPT], 10 * 60 * 1000);
+/** Windows installs through uv/pip, so there is no script to fetch. */
+async function prepareHfInstaller(): Promise<boolean> {
+  if (isWindows) return true;
+  return download(HF_INSTALLER_URL, HF_SCRIPT);
 }
 
-async function locateHf(): Promise<string | null> {
-  // 1) Already resolvable through PATH?
-  // const direct = await runCommand("hf", ["version"]);
-  // if (direct.ok) return "hf";
-
-  // 2) Ask the OS where it is.
-  const finder = isWindows ? "where.exe" : "which";
-  const found = await runCommand(finder, ["hf"]);
-  if (found.ok) {
-    const first = (found.stdout ?? "")
-      .split(/\r?\n/)
-      .map((l) => l.trim())
-      .find(Boolean);
-    if (first) return first;
+async function runHfInstaller() {
+  if (!isWindows) {
+    return runCommand("bash", [HF_SCRIPT], INSTALL_TIMEOUT);
   }
 
-  // 3) Probe known install dirs.
-  const candidates = isWindows
-    ? [
-        path.join(os.homedir(), ".local", "bin"), // standalone installer (your case)
-        path.join(os.homedir(), ".hf-cli"), // legacy shim
-        path.join(process.env.APPDATA ?? "", "Python", "Scripts"), // pip (python.org)
-        path.join(
-          process.env.LOCALAPPDATA ?? "",
-          "Programs",
-          "Python",
-          "Scripts",
-        ),
-      ]
-    : [
-        path.join(os.homedir(), ".local", "bin"), // install.sh default
-        path.join(os.homedir(), ".hf-cli"),
-        "/usr/local/bin",
-        "/usr/bin",
-      ];
+  const uv = await runCommand(
+    "uv",
+    ["tool", "install", "-U", "huggingface_hub[cli]"],
+    INSTALL_TIMEOUT,
+  );
+  if (uv.ok) return uv;
 
-  const exeNames = isWindows ? ["hf.exe", "hf.cmd", "hf.bat"] : ["hf"];
-
-  for (const dir of candidates) {
-    if (!dir) continue;
-    for (const name of exeNames) {
-      const exe = path.join(dir, name);
-      try {
-        await fs.promises.access(exe, fs.constants.F_OK);
-        return exe;
-      } catch {
-        // keep looking
-      }
-    }
-  }
-
-  return null;
+  return runCommand(
+    "python",
+    ["-m", "pip", "install", "-U", "huggingface_hub[cli]"],
+    INSTALL_TIMEOUT,
+  );
 }
 
-export async function getHFCli(): Promise<boolean> {
-  const progress = createProgress("HF CLI setup");
+/** Install the Hugging Face CLI. Callers verify with `checkHfCli()`. */
+export async function installHfCli(): Promise<boolean> {
+  const progress = createProgress("hf CLI setup");
 
-  const already = await checkHfCli();
-  if (already.pass) {
-    progress.stop(
-      `✓ hf already installed (${already.version}), (${already.location})`,
-    );
-    return true;
-  }
-
-  progress.set(0.05, "Downloading installer");
-  const downloaded = await trackProgress(
+  const prepared = await trackProgress(
     progress,
     0.05,
     0.2,
-    downloadHfInstaller(),
-    "downloading installer",
+    prepareHfInstaller(),
+    isWindows ? "preparing installer" : "downloading installer",
   );
-  if (!downloaded) {
-    progress.stop("✗ Failed to download hf installer");
+  if (!prepared) {
+    progress.stop("✗ Failed to download installer");
     return false;
   }
 
-  progress.set(0.2, "installing (this can take a minute)");
   const install = await trackProgress(
     progress,
     0.2,
-    0.95,
-    runHFInstaller(),
+    0.9,
+    runHfInstaller(),
     "installing (this can take a minute)",
   );
   if (!install.ok) {
-    progress.stop("✗ hf installation failed");
-    // FIX: `install.error` is the execFile failure message; `.stderr` may be empty.
+    progress.stop("✗ Installation failed");
     console.error(install.stderr || install.error);
     return false;
   }
 
-  // FIX: probe for the real binary instead of guessing a single dir.
-  progress.set(0.95, "locating hf");
+  // Put the installed binary on PATH so later spawns resolve it.
   const located = await locateHf();
-
-  if (located && located !== "hf") {
-    // Found by absolute path — prepend its dir to PATH so future spawns
-    // (and checkHfCli below) resolve cleanly.
-    const dir = path.dirname(located);
-    const parts = (process.env.PATH ?? "").split(path.delimiter);
-    if (!parts.includes(dir)) {
-      process.env.PATH = [dir, ...parts].filter(Boolean).join(path.delimiter);
-    }
+  if (located && path.isAbsolute(located)) {
+    prependToPath(path.dirname(located));
   }
 
-  progress.set(0.97, "verifying");
-  const verified = await checkHfCli();
-  progress.stop(
-    verified.pass
-      ? `✓ hf CLI installed${located && located !== "hf" ? ` (${located})` : ""}`
-      : "⚠ hf installed but not detected",
-  );
-
-  if (!verified.pass) {
-    console.warn(verified.reason);
-    if (!located) {
-      console.warn(
-        "Searched dirs:",
-        isWindows
-          ? "%USERPROFILE%\\.local\\bin, ~\\.hf-cli, %APPDATA%\\Python\\Scripts, %LOCALAPPDATA%\\Programs\\Python\\Scripts"
-          : "~/.local/bin, ~/.hf-cli, /usr/local/bin, /usr/bin",
-      );
-    }
-  }
-
-  return verified.pass;
+  progress.stop("hf CLI installer finished");
+  return true;
 }
 
-const MODEL_REPO = "nvidia/nemotron-3.5-asr-streaming-0.6b";
-const MODEL_FILE = "nemotron-3.5-asr-streaming-0.6b.q8_0.gguf";
-
-/** Root models dir, resolved relative to repo root. */
-const MODELS_DIR = path.resolve(__dirname, "..", "..", "models");
-
-function runHfDownload() {
-  return runCommand(
-    "hf",
-    ["download", MODEL_REPO, MODEL_FILE, "--local-dir", MODELS_DIR],
-    30 * 60 * 1000, // 30 min — quantized 0.6B is ~700 MB
-  );
-}
-
-export async function getModel(): Promise<boolean> {
+/** Download the ASR weights with `hf`. Callers verify with `checkModel()`. */
+export async function installModel(): Promise<boolean> {
   const progress = createProgress("Model setup");
 
-  // 1) Already present?
-  const already = await checkModel();
-  if (already.pass) {
-    progress.stop(`✓ Model already available (${already.fileCount} files)`);
-    return true;
-  }
-
-  // 2) hf CLI must be usable — otherwise we can't download.
   const hf = await checkHfCli();
   if (!hf.pass) {
     progress.stop("✗ hf CLI not available — cannot download model");
@@ -365,63 +186,70 @@ export async function getModel(): Promise<boolean> {
     return false;
   }
 
-  // 3) Download with an eased progress bar.
-  progress.set(0.05, "downloading model (this can take several minutes)");
-  const download = await trackProgress(
+  const downloadResult = await trackProgress(
     progress,
     0.05,
     0.95,
-    runHfDownload(),
+    runCommand(
+      "hf",
+      ["download", MODEL_REPO, MODEL_FILE_NAME, "--local-dir", MODELS_DIR],
+      INSTALL_TIMEOUT,
+    ),
     "downloading model (this can take several minutes)",
   );
-
-  if (!download.ok) {
+  if (!downloadResult.ok) {
     progress.stop("✗ Model download failed");
-    console.error(download.stderr || download.error);
+    console.error(downloadResult.stderr || downloadResult.error);
     return false;
   }
 
-  // 4) Re-verify with the existing check.
-  progress.set(0.97, "verifying");
-  const verified = await checkModel();
-  progress.stop(
-    verified.pass ? "✓ Model downloaded" : "⚠ Model download incomplete",
-  );
-  if (!verified.pass) console.warn(verified.reason);
-  return verified.pass;
+  progress.stop("Model download finished");
+  return true;
 }
 
-export async function serverCommand() {
-  const result = await runCommand("nemo-speech", [
-    "serve",
-    "--asr-model",
-    "models/nemotron-3.5-asr-streaming-0.6b.q8_0.gguf",
-    "--open",
-  ]);
+/** Spawn `nemo-speech serve` in the background. Resolves once the process is up. */
+function launchSttServer(): Promise<boolean> {
+  return new Promise((resolve) => {
+    const child = spawn(
+      "nemo-speech",
+      ["serve", "--asr-model", MODEL_FILE, "--open"],
+      { cwd: REPO_ROOT, detached: true, stdio: "ignore" },
+    );
+    child.once("error", (err) => {
+      console.error(err.message);
+      resolve(false);
+    });
+    child.once("spawn", () => {
+      child.unref();
+      resolve(true);
+    });
+  });
 }
 
-export async function RunServer(): Promise<boolean> {
-  const progress = createProgress("server setup");
+/** Start the STT server and wait until it reports ready. */
+export async function startSttServer(): Promise<boolean> {
+  const progress = createProgress("STT server");
 
-  const already = await checkServer();
-  if (already.pass) {
-    progress.stop(`✓ server already live`);
-    return true;
+  const launched = await launchSttServer();
+  if (!launched) {
+    progress.stop("✗ Failed to launch server");
+    return false;
   }
 
-  progress.set(0.05, "Starting server (this can take several minutes)");
-  const server = await trackProgress(
+  const ready = await trackProgress(
     progress,
-    0.05,
+    0.1,
     0.95,
-    serverCommand(),
-    "loading model ( This can take a minute)",
+    waitForServer(SERVER_START_TIMEOUT),
+    "waiting for server to become ready",
   );
 
-  if (!server.ok) {
-    progress.stop("✗ Model download failed");
-    console.error(server.stderr || server.error);
+  if (!ready.pass) {
+    progress.stop("⚠ Server not ready yet");
+    console.warn(ready.reason);
     return false;
   }
+
+  progress.stop("STT server is ready");
   return true;
 }

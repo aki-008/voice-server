@@ -1,12 +1,7 @@
-import path from "node:path";
-import { fileURLToPath } from "node:url";
-
 import express from "express";
 
-import { patchConsole } from "./lib/logger.js";
+import { CLIENT_DIST } from "./lib/paths.js";
 import apiRouter from "./routes/api.js";
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export function createApp() {
   const isDev = process.env.NODE_ENV !== "production";
@@ -16,15 +11,11 @@ export function createApp() {
   app.use("/api", apiRouter);
 
   if (!isDev) {
-    const clientDist = path.join(__dirname, "..", "dist");
-    app.use(express.static(clientDist));
+    app.use(express.static(CLIENT_DIST));
     app.get("*", (_req, res) => {
-      res.sendFile(path.join(clientDist, "index.html"));
+      res.sendFile("index.html", { root: CLIENT_DIST });
     });
   }
 
   return app;
 }
-
-// Console must be patched before any module logs at import time.
-patchConsole();

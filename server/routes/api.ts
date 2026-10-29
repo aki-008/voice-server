@@ -1,43 +1,28 @@
 import { Router } from "express";
 
+import { runSanityChecks } from "../lib/bootstrap.js";
+import type { SanityReport } from "../lib/checks/index.js";
 import { getLogs, onLog, type LogEntry } from "../lib/logger.js";
-import { checkModel, checkNemo, checkServer } from "../lib/checks/index.js";
-import type { CheckResult } from "../lib/checks/sanityCheck.js";
 
 const router = Router();
 
+const HEARTBEAT_MS = 15_000;
+
 /** Latest sanity-check result, cached after boot and refreshed on demand. */
-let cachedChecks: {
-  nemo: CheckResult;
-  model: CheckResult;
-  server: CheckResult;
-} | null = null;
+let cachedChecks: SanityReport | null = null;
 
-export function setCachedChecks(value: typeof cachedChecks): void {
-  cachedChecks = value;
-}
-
-async function runAllChecks() {
-  const [nemo, model, server] = await Promise.all([
-    checkNemo(),
-    checkModel(),
-    checkServer(),
-  ]);
-  return { nemo, model, server };
+export function setCachedChecks(report: SanityReport): void {
+  cachedChecks = report;
 }
 
 router.get("/health", (_req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
 });
 
-router.get("/hello", (_req, res) => {
-  res.json({ message: "Hello from Express!" });
-});
-
 router.get("/sanity_check", async (req, res) => {
   const refresh = req.query.refresh === "1" || req.query.refresh === "true";
-  if (!cachedChecks || refresh) {
-    cachedChecks = await runAllChecks();
+  if (refresh || !cachedChecks) {
+    cachedChecks = await runSanityChecks();
   }
   res.json(cachedChecks);
 });
@@ -57,7 +42,7 @@ router.get("/logs", (req, res) => {
   for (const entry of getLogs()) send(entry);
 
   const unsubscribe = onLog(send);
-  const heartbeat = setInterval(() => res.write(": ping\n\n"), 15_000);
+  const heartbeat = setInterval(() => res.write(": ping\n\n"), HEARTBEAT_MS);
 
   req.on("close", () => {
     clearInterval(heartbeat);
