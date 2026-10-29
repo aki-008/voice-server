@@ -16,6 +16,8 @@ A minimal boilerplate for a Single Page Application with an Express backend.
 | `npm run dev:client` | Run only the Vite dev server |
 | `npm run build` | Build the SPA (`dist/`) and compile the server (`dist-server/`) |
 | `npm start` | Start the compiled production server |
+| `./start_server.sh` | Bootstrap (deps only when stale) and start the backend — bash, Git Bash, WSL |
+| `.\start_server.ps1` | Same bootstrap for Windows PowerShell |
 
 ## Production
 
@@ -65,6 +67,11 @@ server. Each missing dependency is installed/started automatically, then
 re-checked once. The final state is exposed at `GET /api/sanity_check`
 (add `?refresh=1` to re-run read-only checks), and live logs stream from
 `GET /api/logs` as server-sent events.
+
+The STT server (`nemo-speech serve`) is spawned as a normal child process, so
+Ctrl+C or closing the terminal stops it along with the app. Reloads triggered
+by `tsx watch` (`SIGTERM`) leave it running, so editing files does not reload
+the model.
 
 ## Adding API routes
 

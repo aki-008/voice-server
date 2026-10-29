@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
 
@@ -32,6 +32,9 @@ const HF_SCRIPT = path.join(
 const DOWNLOAD_TIMEOUT = 2 * 60 * 1000;
 const INSTALL_TIMEOUT = 30 * 60 * 1000;
 const SERVER_START_TIMEOUT = 3 * 60 * 1000;
+
+/** The STT server we spawned, so shutdown can take it down. */
+let sttProcess: ChildProcess | null = null;
 
 async function download(url: string, dest: string): Promise<boolean> {
   const result = await runCommand(
@@ -207,23 +210,45 @@ export async function installModel(): Promise<boolean> {
   return true;
 }
 
-/** Spawn `nemo-speech serve` in the background. Resolves once the process is up. */
+/**
+ * Spawn `nemo-speech serve` next to the app. Resolves once the process is up.
+ *
+ * Deliberately NOT detached: `detached: true` puts the child in a new Windows
+ * process group, so Ctrl+C and closing the terminal never reach it and it
+ * lingers after the app stops. Sharing the console/process group means the
+ * shell's Ctrl+C (and console teardown) take it down with us.
+ */
 function launchSttServer(): Promise<boolean> {
   return new Promise((resolve) => {
     const child = spawn(
       "nemo-speech",
       ["serve", "--asr-model", MODEL_FILE, "--open"],
-      { cwd: REPO_ROOT, detached: true, stdio: "ignore" },
+      { cwd: REPO_ROOT, stdio: "ignore" },
     );
+    sttProcess = child;
+
     child.once("error", (err) => {
       console.error(err.message);
+      if (sttProcess === child) sttProcess = null;
       resolve(false);
     });
     child.once("spawn", () => {
-      child.unref();
+      child.unref(); // don't hold the event loop open on the child's account
       resolve(true);
     });
+    child.once("exit", () => {
+      if (sttProcess === child) sttProcess = null;
+    });
   });
+}
+
+/** Stop the STT server started by this process, if it is still running. */
+export function stopSttServer(): void {
+  const child = sttProcess;
+  sttProcess = null;
+
+  if (!child || child.exitCode !== null || child.signalCode !== null) return;
+  child.kill();
 }
 
 /** Start the STT server and wait until it reports ready. */
